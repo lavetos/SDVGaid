@@ -78,6 +78,40 @@ async def get_user_notes(user_id: int, limit: int = 20) -> list[Note]:
         return result.scalars().all()
 
 
+async def delete_note(note_id: int, user_id: int) -> bool:
+    """Удалить заметку"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Note)
+            .where(Note.id == note_id)
+            .where(Note.user_id == user_id)
+        )
+        note = result.scalar_one_or_none()
+        
+        if not note:
+            return False
+        
+        await session.delete(note)
+        await session.commit()
+        return True
+
+
+async def delete_all_notes(user_id: int) -> int:
+    """Удалить все заметки пользователя"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Note).where(Note.user_id == user_id)
+        )
+        notes = result.scalars().all()
+        count = len(notes)
+        
+        for note in notes:
+            await session.delete(note)
+        
+        await session.commit()
+        return count
+
+
 async def get_user_state(user_id: int) -> UserState:
     """Получить состояние пользователя"""
     async with async_session() as session:

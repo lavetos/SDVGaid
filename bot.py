@@ -11,10 +11,11 @@ from config import BOT_TOKEN, POMODORO_WORK_TIME, POMODORO_BREAK_TIME, QUIET_MOD
 from database import init_db
 from db_helpers import (
     get_or_create_user, save_energy_level, save_goal, get_todays_goal, 
-    complete_goal, save_note, get_user_notes, save_evening_checkin,
-    get_energy_stats_week, get_user_state, set_quiet_mode, disable_quiet_mode,
-    get_all_reminders, delete_reminder, complete_reminder,
-    get_plan_items, add_plan_item, delete_plan_item, toggle_plan_item
+    complete_goal, save_note, get_user_notes, delete_note, delete_all_notes,
+    save_evening_checkin, get_energy_stats_week, get_user_state, 
+    set_quiet_mode, disable_quiet_mode, get_all_reminders, delete_reminder, 
+    complete_reminder, get_plan_items, add_plan_item, delete_plan_item, 
+    toggle_plan_item
 )
 from keyboards import (
     get_energy_keyboard, get_day_type_keyboard, get_pomodoro_keyboard,
@@ -190,10 +191,11 @@ async def cmd_notes(message: Message, state: FSMContext):
         await message.answer("Заметок пока нет 🤷", reply_markup=get_main_keyboard())
         return
     
-    text = "📝 Твои заметки:\n\n"
+    text = f"📝 Твои заметки ({len(notes)}):\n\n"
     for i, note in enumerate(notes, 1):
         text += f"{i}. {note.text}\n"
     
+    text += "\n\nДля удаления напиши: 'удали все заметки' или 'очисти заметки'"
     await message.answer(text, reply_markup=get_main_keyboard())
 
 
@@ -557,16 +559,26 @@ async def callback_plan_item_delete(callback: CallbackQuery):
 
 # ==================== AI ОБРАБОТЧИК ====================
 
-@dp.message()
+@dp.message(StateFilter(None))  # Only process when no active state
 async def handle_ai_message(message: Message):
     """Обработка сообщений с помощью AI (если не команда и не в состоянии)"""
-    # Skip if it's a command or energy selection
-    if message.text.startswith('/'):
+    # Skip if it's a command
+    if message.text and message.text.startswith('/'):
         return
     
     # Skip button presses and keyboard commands
     if message.text in ["🔋 Меньше 40%", "⚡ Около 60%", "💪 Больше 80%",
                        "😌 Мягкий день", "🎯 Обычный день", "🚀 Активный день"]:
+        return
+    
+    # Handle note deletion commands directly
+    text_lower = message.text.lower() if message.text else ""
+    if any(phrase in text_lower for phrase in ["удали все заметки", "очисти заметки", "удалить все заметки", "очистить заметки", "все"]):
+        count = await delete_all_notes(message.from_user.id)
+        if count > 0:
+            await message.answer(f"✅ Удалено {count} заметок", reply_markup=get_main_keyboard())
+        else:
+            await message.answer("Заметок не было 🤷", reply_markup=get_main_keyboard())
         return
     
     # Get user's current energy level
