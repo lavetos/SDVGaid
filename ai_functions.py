@@ -2,6 +2,7 @@
 
 import json
 from typing import Dict, Any
+from datetime import datetime
 
 
 # Function tools schema for OpenAI/Claude
@@ -16,7 +17,7 @@ FUNCTION_TOOLS = [
                 "properties": {
                     "when_iso": {
                         "type": "string",
-                        "description": "Время в формате ISO 8601 в UTC. Пример: '2025-11-03T15:00:00Z'"
+                        "description": f"Время в формате ISO 8601 в UTC. Текущая дата: {datetime.now().strftime('%Y-%m-%d')}. Пример: '2025-11-03T15:00:00Z'"
                     },
                     "text": {
                         "type": "string",
@@ -189,11 +190,35 @@ class FunctionHandler:
     
     async def handle_parse_time(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle parse_time_ru function call"""
-        # This will use dateparser
-        return {
-            "success": True,
-            "message": f"Парсинг времени: {args.get('text')}"
-        }
+        import dateparser
+        from datetime import datetime
+        
+        text = args.get('text', '')
+        
+        # Парсим время относительно текущей даты (2025 год)
+        parsed_date = dateparser.parse(
+            text,
+            languages=['ru', 'en'],
+            settings={
+                'RELATIVE_BASE': datetime.now(),  # Используем текущую дату как базу
+                'PREFER_DATES_FROM': 'future'  # Предпочитаем будущие даты
+            }
+        )
+        
+        if parsed_date:
+            # Конвертируем в ISO формат для создания напоминания
+            iso_date = parsed_date.isoformat() + 'Z' if parsed_date.tzinfo is None else parsed_date.astimezone().isoformat()
+            return {
+                "success": True,
+                "parsed_date": iso_date,
+                "formatted": parsed_date.strftime("%d.%m.%Y %H:%M"),
+                "message": f"Распарсено: {parsed_date.strftime('%d.%m.%Y %H:%M')}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Не удалось распарсить время: {text}"
+            }
     
     async def handle_get_energy(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_energy_level function call"""
