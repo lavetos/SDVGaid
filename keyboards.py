@@ -45,9 +45,20 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="/focus"), KeyboardButton(text="/reminders")],
             [KeyboardButton(text="/note"), KeyboardButton(text="/notes")],
             [KeyboardButton(text="/evening"), KeyboardButton(text="/quiet")],
-            [KeyboardButton(text="/energy")]
+            [KeyboardButton(text="/energy"), KeyboardButton(text="/help")]
         ],
         resize_keyboard=True
+    )
+
+
+def get_cancel_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура с кнопкой отмены"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="❌ Отмена")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
 
 
@@ -79,8 +90,20 @@ def get_reminder_keyboard(reminder_id: int, page: int = 0) -> InlineKeyboardMark
                 InlineKeyboardButton(text="✅ Выполнено", callback_data=f"rem_{reminder_id}_done"),
                 InlineKeyboardButton(text="✏️ Изменить", callback_data=f"rem_{reminder_id}_edit")
             ],
-            [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"rem_{reminder_id}_delete")],
+            [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"rem_{reminder_id}_delete_confirm")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data=f"rem_list_{page}")]
+        ]
+    )
+
+
+def get_reminder_delete_confirm_keyboard(reminder_id: int, page: int = 0) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления напоминания"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Да, удалить", callback_data=f"rem_{reminder_id}_delete"),
+                InlineKeyboardButton(text="✅ Отмена", callback_data=f"rem_view_{reminder_id}")
+            ]
         ]
     )
 
@@ -125,8 +148,20 @@ def get_plan_item_keyboard(item_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✅ Сделано", callback_data=f"plan_{item_id}_done"),
                 InlineKeyboardButton(text="✏️ Изменить", callback_data=f"plan_{item_id}_edit")
             ],
-            [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"plan_{item_id}_delete")],
+            [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"plan_{item_id}_delete_confirm")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="plan_list")]
+        ]
+    )
+
+
+def get_plan_delete_confirm_keyboard(item_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления пункта плана"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Да, удалить", callback_data=f"plan_{item_id}_delete"),
+                InlineKeyboardButton(text="✅ Отмена", callback_data=f"plan_view_{item_id}")
+            ]
         ]
     )
 
@@ -147,4 +182,3 @@ def get_plan_list_keyboard(items: list) -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton(text="➕ Добавить пункт", callback_data="plan_add")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
