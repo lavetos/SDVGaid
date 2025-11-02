@@ -12,11 +12,15 @@ from database import init_db
 from db_helpers import (
     get_or_create_user, save_energy_level, save_goal, get_todays_goal, 
     complete_goal, save_note, get_user_notes, save_evening_checkin,
-    get_energy_stats_week, get_user_state, set_quiet_mode, disable_quiet_mode
+    get_energy_stats_week, get_user_state, set_quiet_mode, disable_quiet_mode,
+    get_all_reminders, delete_reminder, complete_reminder,
+    get_plan_items, add_plan_item, delete_plan_item, toggle_plan_item
 )
 from keyboards import (
     get_energy_keyboard, get_day_type_keyboard, get_pomodoro_keyboard,
-    get_main_keyboard, get_goal_confirmation_keyboard, get_goal_completion_keyboard
+    get_main_keyboard, get_goal_confirmation_keyboard, get_goal_completion_keyboard,
+    get_reminders_list_keyboard, get_reminder_keyboard,
+    get_plan_list_keyboard, get_plan_item_keyboard
 )
 from ai_service import ai_service
 from scheduler import ReminderScheduler
@@ -39,6 +43,8 @@ class BotStates(StatesGroup):
     waiting_evening_worked = State()
     waiting_evening_tired = State()
     waiting_evening_helped = State()
+    waiting_plan_item = State()
+    waiting_reminder_text = State()
 
 
 # Словарь для хранения активных Pomodoro сессий
@@ -366,6 +372,189 @@ async def process_energy(message: Message, state: FSMContext):
     await state.clear()
 
 
+# ==================== REMINDERS ====================
+
+@dp.message(Command("reminders"))
+async def cmd_reminders(message: Message):
+    """Показать все напоминания"""
+    reminders = await get_all_reminders(message.from_user.id, completed=False)
+    
+    if not reminders:
+        await message.answer("Напоминаний нет 📭\n\nИспользуй AI команды типа 'напомни ...' или добавь через меню", reply_markup=get_main_keyboard())
+        return
+    
+    text = f"Напоминания ({len(reminders)}) ⏰\n\n"
+    for i, rem in enumerate(reminders[:5], 1):
+        text += f"{i}. {rem.text}\n"
+    
+    await message.answer(text, reply_markup=get_reminders_list_keyboard(reminders))
+
+
+@dp.callback_query(F.data.startswith("rem_view_"))
+async def callback_reminder_view(callback: CallbackQuery):
+    """Просмотр напоминания"""
+    reminder_id = int(callback.data.split("_")[2])
+    reminders = await get_all_reminders(callback.from_user.id)
+    reminder = next((r for r in reminders if r.id == reminder_id), None)
+    
+    if not reminder:
+        await callback.answer("Напоминание не найдено")
+        return
+    
+    from datetime import datetime
+    when_str = reminder.when_datetime.strftime("%d.%m.%Y %H:%M")
+    text = f"⏰ Напоминание\n\n{reminder.text}\n\nКогда: {when_str}"
+    
+    await callback.message.edit_text(text, reply_markup=get_reminder_keyboard(reminder_id))
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("rem_list_"))
+async def callback_reminders_list(callback: CallbackQuery):
+    """Список напоминаний"""
+    page = int(callback.data.split("_")[2])
+    reminders = await get_all_reminders(callback.from_user.id, completed=False)
+    
+    if not reminders:
+        await callback.message.edit_text("Напоминаний нет 📭", reply_markup=get_main_keyboard())
+        await callback.answer()
+        return
+    
+    text = f"Напоминания ({len(reminders)}) ⏰\n\n"
+    await callback.message.edit_text(text, reply_markup=get_reminders_list_keyboard(reminders, page))
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("rem_") and F.data.endswith("_done"))
+async def callback_reminder_done(callback: CallbackQuery):
+    """Отметить напоминание выполненным"""
+    reminder_id = int(callback.data.split("_")[1])
+    success = await complete_reminder(reminder_id, callback.from_user.id)
+    
+    if success:
+        await callback.answer("✅ Выполнено!")
+        # Refresh list
+        reminders = await get_all_reminders(callback.from_user.id, completed=False)
+        await callback.message.edit_text("Напоминание выполнено ✅", reply_markup=get_reminders_list_keyboard(reminders))
+    else:
+        await callback.answer("Ошибка ⚠️")
+
+
+@dp.callback_query(F.data.startswith("rem_") and F.data.endswith("_delete"))
+async def callback_reminder_delete(callback: CallbackQuery):
+    """Удалить напоминание"""
+    reminder_id = int(callback.data.split("_")[1])
+    success = await delete_reminder(reminder_id, callback.from_user.id)
+    
+    if success:
+        await callback.answer("🗑️ Удалено")
+        reminders = await get_all_reminders(callback.from_user.id, completed=False)
+        if reminders:
+            await callback.message.edit_text("Напоминание удалено 🗑️", reply_markup=get_reminders_list_keyboard(reminders))
+        else:
+            await callback.message.edit_text("Напоминаний нет 📭", reply_markup=get_main_keyboard())
+    else:
+        await callback.answer("Ошибка ⚠️")
+
+
+# ==================== DAILY PLAN ====================
+
+@dp.message(Command("plan"))
+async def cmd_plan(message: Message, state: FSMContext):
+    """Показать план на день"""
+    items = await get_plan_items(message.from_user.id, completed=None)
+    
+    if not items:
+        await message.answer("План пуст 📋\n\nЧто добавим?", reply_markup=get_plan_list_keyboard(items))
+        await state.set_state(BotStates.waiting_plan_item)
+    else:
+        completed = sum(1 for item in items if item.completed)
+        text = f"План на день 📋\n\nВыполнено: {completed}/{len(items)}\n\n"
+        await message.answer(text, reply_markup=get_plan_list_keyboard(items))
+
+
+@dp.message(StateFilter(BotStates.waiting_plan_item))
+async def process_plan_item(message: Message, state: FSMContext):
+    """Обработка добавления пункта в план"""
+    if message.text.startswith('/'):
+        await state.clear()
+        return
+    
+    item = await add_plan_item(message.from_user.id, message.text)
+    await message.answer(f"✅ Добавлено:\n{item.text}", reply_markup=get_main_keyboard())
+    await state.clear()
+
+
+@dp.callback_query(F.data == "plan_add")
+async def callback_plan_add(callback: CallbackQuery, state: FSMContext):
+    """Добавить пункт в план"""
+    await callback.message.edit_text("Что добавим в план? 📋", reply_markup=None)
+    await state.set_state(BotStates.waiting_plan_item)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "plan_list")
+async def callback_plan_list(callback: CallbackQuery):
+    """Список плана"""
+    items = await get_plan_items(callback.from_user.id, completed=None)
+    
+    if not items:
+        await callback.message.edit_text("План пуст 📋", reply_markup=get_plan_list_keyboard(items))
+    else:
+        completed = sum(1 for item in items if item.completed)
+        text = f"План на день 📋\n\nВыполнено: {completed}/{len(items)}"
+        await callback.message.edit_text(text, reply_markup=get_plan_list_keyboard(items))
+    
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("plan_view_"))
+async def callback_plan_item_view(callback: CallbackQuery):
+    """Просмотр пункта плана"""
+    item_id = int(callback.data.split("_")[2])
+    items = await get_plan_items(callback.from_user.id)
+    item = next((i for i in items if i.id == item_id), None)
+    
+    if not item:
+        await callback.answer("Пункт не найден")
+        return
+    
+    text = f"{'✅' if item.completed else '⭕'} Пункт плана\n\n{item.text}"
+    await callback.message.edit_text(text, reply_markup=get_plan_item_keyboard(item_id))
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("plan_") and F.data.endswith("_done"))
+async def callback_plan_item_done(callback: CallbackQuery):
+    """Переключить выполненность"""
+    item_id = int(callback.data.split("_")[1])
+    success = await toggle_plan_item(item_id, callback.from_user.id)
+    
+    if success:
+        await callback.answer("✅ Обновлено!")
+        items = await get_plan_items(callback.from_user.id, completed=None)
+        await callback.message.edit_text(f"План обновлен 📋\n\nВыполнено: {sum(1 for i in items if i.completed)}/{len(items)}", reply_markup=get_plan_list_keyboard(items))
+    else:
+        await callback.answer("Ошибка ⚠️")
+
+
+@dp.callback_query(F.data.startswith("plan_") and F.data.endswith("_delete"))
+async def callback_plan_item_delete(callback: CallbackQuery):
+    """Удалить пункт"""
+    item_id = int(callback.data.split("_")[1])
+    success = await delete_plan_item(item_id, callback.from_user.id)
+    
+    if success:
+        await callback.answer("🗑️ Удалено")
+        items = await get_plan_items(callback.from_user.id, completed=None)
+        if items:
+            await callback.message.edit_text("Пункт удален 🗑️", reply_markup=get_plan_list_keyboard(items))
+        else:
+            await callback.message.edit_text("План пуст 📋", reply_markup=get_plan_list_keyboard(items))
+    else:
+        await callback.answer("Ошибка ⚠️")
+
+
 # ==================== AI ОБРАБОТЧИК ====================
 
 @dp.message()
@@ -375,7 +564,7 @@ async def handle_ai_message(message: Message):
     if message.text.startswith('/'):
         return
     
-    # Skip button presses
+    # Skip button presses and keyboard commands
     if message.text in ["🔋 Меньше 40%", "⚡ Около 60%", "💪 Больше 80%",
                        "😌 Мягкий день", "🎯 Обычный день", "🚀 Активный день"]:
         return

@@ -98,6 +98,18 @@ class NoteEmbedding(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class DailyPlanItem(Base):
+    """План на день - список задач"""
+    __tablename__ = 'daily_plan_items'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    completed = Column(Boolean, default=False)
+    date = Column(DateTime, default=datetime.utcnow)
+    order = Column(Integer, default=0)  # Порядок отображения
+
+
 # Создание движка и сессии
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
