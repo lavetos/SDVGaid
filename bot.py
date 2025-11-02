@@ -1,7 +1,7 @@
 """Главный файл Telegram-бота SDVGaid"""
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command, StateFilter, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -379,17 +379,21 @@ async def process_energy(message: Message, state: FSMContext):
 @dp.message(Command("reminders"))
 async def cmd_reminders(message: Message):
     """Показать все напоминания"""
-    reminders = await get_all_reminders(message.from_user.id, completed=False)
-    
-    if not reminders:
-        await message.answer("Напоминаний нет 📭\n\nИспользуй AI команды типа 'напомни ...' или добавь через меню", reply_markup=get_main_keyboard())
-        return
-    
-    text = f"Напоминания ({len(reminders)}) ⏰\n\n"
-    for i, rem in enumerate(reminders[:5], 1):
-        text += f"{i}. {rem.text}\n"
-    
-    await message.answer(text, reply_markup=get_reminders_list_keyboard(reminders))
+    try:
+        reminders = await get_all_reminders(message.from_user.id, completed=False)
+        
+        if not reminders:
+            await message.answer("Напоминаний нет 📭\n\nИспользуй AI команды типа 'напомни ...' или добавь через меню", reply_markup=get_main_keyboard())
+            return
+        
+        text = f"Напоминания ({len(reminders)}) ⏰\n\n"
+        for i, rem in enumerate(reminders[:5], 1):
+            text += f"{i}. {rem.text}\n"
+        
+        await message.answer(text, reply_markup=get_reminders_list_keyboard(reminders))
+    except Exception as e:
+        print(f"Error in /reminders: {e}")
+        await message.answer(f"Ошибка: {e}", reply_markup=get_main_keyboard())
 
 
 @dp.callback_query(F.data.startswith("rem_view_"))
@@ -464,15 +468,19 @@ async def callback_reminder_delete(callback: CallbackQuery):
 @dp.message(Command("plan"))
 async def cmd_plan(message: Message, state: FSMContext):
     """Показать план на день"""
-    items = await get_plan_items(message.from_user.id, completed=None)
-    
-    if not items:
-        await message.answer("План пуст 📋\n\nЧто добавим?", reply_markup=get_plan_list_keyboard(items))
-        await state.set_state(BotStates.waiting_plan_item)
-    else:
-        completed = sum(1 for item in items if item.completed)
-        text = f"План на день 📋\n\nВыполнено: {completed}/{len(items)}\n\n"
-        await message.answer(text, reply_markup=get_plan_list_keyboard(items))
+    try:
+        items = await get_plan_items(message.from_user.id, completed=None)
+        
+        if not items:
+            await message.answer("План пуст 📋\n\nЧто добавим?", reply_markup=get_plan_list_keyboard(items))
+            await state.set_state(BotStates.waiting_plan_item)
+        else:
+            completed = sum(1 for item in items if item.completed)
+            text = f"План на день 📋\n\nВыполнено: {completed}/{len(items)}\n\n"
+            await message.answer(text, reply_markup=get_plan_list_keyboard(items))
+    except Exception as e:
+        print(f"Error in /plan: {e}")
+        await message.answer(f"Ошибка: {e}", reply_markup=get_main_keyboard())
 
 
 @dp.message(StateFilter(BotStates.waiting_plan_item))
@@ -559,11 +567,16 @@ async def callback_plan_item_delete(callback: CallbackQuery):
 
 # ==================== AI ОБРАБОТЧИК ====================
 
-@dp.message(StateFilter(None))  # Only process when no active state
+@dp.message(StateFilter(None))  # Only process when no active state  
 async def handle_ai_message(message: Message):
     """Обработка сообщений с помощью AI (если не команда и не в состоянии)"""
-    # Skip if it's a command
-    if message.text and message.text.startswith('/'):
+    # Skip if no text
+    if not message.text:
+        return
+    
+    # Skip all commands - command handlers should process these first
+    # This is a safety check in case command handlers don't catch them
+    if message.text.startswith('/'):
         return
     
     # Skip button presses and keyboard commands
