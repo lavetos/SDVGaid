@@ -1,46 +1,46 @@
-# SDVGaid - Дружелюбный Telegram-бот для людей с СДВГ
+# SDVGaid - Friendly Telegram Bot for People with ADHD
 
-Тёплый помощник, который помогает структурировать день без давления и стыда.
+A warm assistant that helps structure your day without pressure or shame.
 
-## 🎯 Возможности
+## 🎯 Features
 
-- **Утренний диалог** - настрой дня в зависимости от уровня энергии
-- **Главное дело дня** - фокус на одном важном деле
-- **Pomodoro таймер** - 25 минут фокуса с перерывами
-- **Внешняя голова** - заметки для снятия с себя нагрузку
-- **Вечерний чек-ин** - мягкое подведение итогов дня
-- **Режим тишины** - временно отключить уведомления
-- **Дневник энергии** - отслеживание уровня энергии по дням
+- **Morning Dialogue** - Set up your day based on energy level
+- **Daily Main Goal** - Focus on one important task
+- **Pomodoro Timer** - 25 minutes of focus with breaks
+- **External Brain** - Dump notes to free your mind
+- **Evening Check-in** - Gentle daily reflection
+- **Quiet Mode** - Temporarily disable notifications
+- **Energy Diary** - Track energy levels over time
 
-## 🚀 Установка
+## 🚀 Installation
 
-1. Клонируй репозиторий
-2. Установи зависимости:
+1. Clone the repository
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Создай файл `.env`:
+3. Create `.env` file:
    ```
-   BOT_TOKEN=твой_токен_бота
+   BOT_TOKEN=your_bot_token
    DATABASE_URL=sqlite+aiosqlite:///adhd_bot.db
    ```
-4. Запусти бота:
+4. Run the bot:
    ```bash
    python bot.py
    ```
 
-## 🤖 Команды
+## 🤖 Commands
 
-- `/start` - начать работу с ботом
-- `/goal` - установить главное дело дня
-- `/focus` - запустить Pomodoro таймер
-- `/note` - добавить заметку
-- `/notes` - посмотреть все заметки
-- `/evening` - вечерний чек-ин
-- `/quiet` - режим тишины на 30 минут
-- `/energy` - статистика энергии за неделю
+- `/start` - Start working with the bot
+- `/goal` - Set your main daily goal
+- `/focus` - Start Pomodoro timer
+- `/note` - Add a note
+- `/notes` - View all notes
+- `/evening` - Evening check-in
+- `/quiet` - Quiet mode for 30 minutes
+- `/energy` - Energy statistics for the week
 
-## 💡 Тон общения
+## 💡 Communication Style
 
-Дружелюбный, без осуждения, с юмором и поддержкой. Бот не мотивирует через "надо", а мягко поддерживает и помогает.
+Friendly, non-judgmental, with humor and support. The bot doesn't motivate through "should", but gently supports and helps.
 
