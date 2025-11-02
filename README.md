@@ -44,3 +44,21 @@ A warm assistant that helps structure your day without pressure or shame.
 
 Friendly, non-judgmental, with humor and support. The bot doesn't motivate through "should", but gently supports and helps.
 
+## 🤖 AI Features (Optional)
+
+The bot now supports **AI-powered natural language understanding** using OpenAI or Claude:
+
+- Natural Russian language commands
+- Smart task breakdown into micro-steps
+- Automatic reminder creation from text
+- Empathetic reframing of self-criticism
+- Context-aware responses based on energy level
+
+**See [AI_SETUP.md](AI_SETUP.md) for detailed setup instructions.**
+
+## 📚 Documentation
+
+- [SETUP.md](SETUP.md) - Installation guide
+- [AI_SETUP.md](AI_SETUP.md) - AI configuration
+- [HOW_TO_GET_TOKEN.md](HOW_TO_GET_TOKEN.md) - Getting Telegram bot token
+

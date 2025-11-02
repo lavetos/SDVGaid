@@ -7,6 +7,10 @@ load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite+aiosqlite:///adhd_bot.db')
 
+# AI configuration (optional)
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен! Создай файл .env с токеном бота.")
 

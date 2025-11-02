@@ -18,12 +18,17 @@ from keyboards import (
     get_energy_keyboard, get_day_type_keyboard, get_pomodoro_keyboard,
     get_main_keyboard, get_goal_confirmation_keyboard, get_goal_completion_keyboard
 )
+from ai_service import ai_service
+from scheduler import ReminderScheduler
 
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+# Инициализация планировщика
+scheduler = ReminderScheduler(bot)
 
 
 # Состояния FSM
@@ -361,19 +366,60 @@ async def process_energy(message: Message, state: FSMContext):
     await state.clear()
 
 
+# ==================== AI ОБРАБОТЧИК ====================
+
+@dp.message()
+async def handle_ai_message(message: Message):
+    """Обработка сообщений с помощью AI (если не команда и не в состоянии)"""
+    # Skip if it's a command or energy selection
+    if message.text.startswith('/'):
+        return
+    
+    # Skip button presses
+    if message.text in ["🔋 Меньше 40%", "⚡ Около 60%", "💪 Больше 80%",
+                       "😌 Мягкий день", "🎯 Обычный день", "🚀 Активный день"]:
+        return
+    
+    # Get user's current energy level
+    user_state = await get_user_state(message.from_user.id)
+    energy = None  # Could fetch latest energy from DB
+    
+    # Process with AI
+    try:
+        response = await ai_service.process_message(message.text, message.from_user.id, energy)
+        await message.answer(response, reply_markup=get_main_keyboard())
+    except Exception as e:
+        print(f"AI error: {e}")
+        # Fallback to simple response
+        await message.answer(
+            "Понял тебя 💛\n\nИспользуй команды /goal, /focus, /note или /evening для работы со мной!",
+            reply_markup=get_main_keyboard()
+        )
+
+
 # ==================== ЗАПУСК БОТА ====================
 
 async def main():
     """Главная функция"""
     print("Запуск бота SDVGaid... 🤖")
     
+    # Инициализация AI
+    print(f"AI провайдер: {ai_service.current_provider.upper()} 🤖")
+    
     # Инициализация БД
     await init_db()
     print("База данных инициализирована ✅")
     
+    # Запуск планировщика
+    scheduler.start()
+    print("Планировщик запущен ⏰")
+    
     # Запуск бота
     print("Бот запущен! 🚀")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        scheduler.stop()
 
 
 if __name__ == "__main__":

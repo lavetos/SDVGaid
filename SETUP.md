@@ -28,6 +28,10 @@
    ```
    BOT_TOKEN=your_telegram_bot_token_here
    DATABASE_URL=sqlite+aiosqlite:///adhd_bot.db
+   
+   # Optional: AI features (see AI_SETUP.md)
+   # OPENAI_API_KEY=your_openai_key
+   # ANTHROPIC_API_KEY=your_claude_key
    ```
 
 5. **Run the bot**
@@ -70,6 +74,17 @@ The bot uses SQLite database stored in `adhd_bot.db` file. Database is automatic
 - **Evening Check-in**: Reflect on the day with gentle questions
 - **Quiet Mode**: Take a break from notifications
 - **Energy Diary**: Track your energy patterns over time
+- 🤖 **AI-Powered** (Optional): Natural language understanding, task breakdown, empathetic responses
+
+## AI Features (Optional)
+
+The bot now supports AI-powered features:
+- Chat in natural Russian language
+- Smart task breakdown into micro-steps
+- Automatic reminder creation from text
+- Empathetic reframing of self-criticism
+
+**See [AI_SETUP.md](AI_SETUP.md) for detailed AI configuration.**
 
 ## Support
 

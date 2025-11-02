@@ -1,5 +1,5 @@
 """Модели базы данных"""
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, LargeBinary
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -72,6 +72,30 @@ class UserState(Base):
     quiet_mode_until = Column(DateTime)
     pomodoro_active = Column(Boolean, default=False)
     pomodoro_until = Column(DateTime)
+
+
+class Reminder(Base):
+    """Напоминания"""
+    __tablename__ = 'reminders'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    when_datetime = Column(DateTime, nullable=False)
+    completed = Column(Boolean, default=False)
+    recurring = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NoteEmbedding(Base):
+    """Эмбеддинги заметок для поиска"""
+    __tablename__ = 'note_embeddings'
+    
+    id = Column(Integer, primary_key=True)
+    note_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    embedding = Column(LargeBinary)  # numpy array as bytes
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Создание движка и сессии
