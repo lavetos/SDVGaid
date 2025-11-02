@@ -11,7 +11,8 @@ try:
 except ImportError:
     Anthropic = None
 from prompts import get_conversation_history, get_low_energy_prompt, get_high_energy_prompt
-from ai_functions import get_function_schema, function_handler
+from ai_functions import get_function_schema
+import ai_functions as af_module
 
 
 class AIService:
@@ -140,7 +141,14 @@ class AIService:
             arguments = json.loads(tool_call.function.arguments)
             
             # Call function handler
-            result = await function_handler.handle_function_call(function_name, arguments)
+            function_handler = af_module.function_handler
+            if not function_handler:
+                result = {"error": "Function handler not initialized"}
+            else:
+                # Для create_reminder нужен chat_id (telegram user_id)
+                # user_id - это внутренний ID из БД, chat_id - это telegram user_id
+                chat_id = user_id  # В нашей схеме они совпадают
+                result = await function_handler.handle_function_call(function_name, arguments, user_id, chat_id)
             results.append(result)
             
             # Add result back to conversation

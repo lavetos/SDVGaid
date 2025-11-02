@@ -29,7 +29,13 @@ class ReminderScheduler:
     
     async def add_reminder(self, chat_id: int, text: str, when: datetime):
         """Add a reminder"""
-        job_id = f"reminder_{chat_id}_{when.timestamp()}"
+        # Убеждаемся что дата timezone-aware
+        if when.tzinfo is None:
+            when = self.timezone.localize(when)
+        else:
+            when = when.astimezone(self.timezone)
+        
+        job_id = f"reminder_{chat_id}_{int(when.timestamp())}"
         
         self.scheduler.add_job(
             self.send_reminder,
@@ -38,7 +44,7 @@ class ReminderScheduler:
             args=[chat_id, text],
             replace_existing=True
         )
-        print(f"Reminder scheduled: {text} at {when} ⏰")
+        print(f"⏰ Reminder scheduled: '{text}' at {when.strftime('%d.%m.%Y %H:%M:%S')} (UTC)")
     
     async def send_reminder(self, chat_id: int, text: str):
         """Send reminder message"""

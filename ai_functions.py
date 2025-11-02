@@ -1,8 +1,9 @@
 """Function definitions for AI function calling"""
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
+from dateutil import parser as date_parser
 
 
 # Function tools schema for OpenAI/Claude
@@ -141,7 +142,9 @@ def get_function_schema() -> list:
 class FunctionHandler:
     """Handle function calls from AI"""
     
-    def __init__(self):
+    def __init__(self, scheduler=None, bot=None):
+        self.scheduler = scheduler
+        self.bot = bot
         self.handlers = {
             "create_reminder": self.handle_create_reminder,
             "add_note": self.handle_add_note,
@@ -151,24 +154,81 @@ class FunctionHandler:
             "break_down_task": self.handle_break_down,
         }
     
-    async def handle_function_call(self, function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_function_call(self, function_name: str, arguments: Dict[str, Any], user_id: int = 0, chat_id: int = 0) -> Dict[str, Any]:
         """Handle function call by name"""
         handler = self.handlers.get(function_name)
         if not handler:
             return {"error": f"Unknown function: {function_name}"}
         
         try:
+            # Для create_reminder передаём user_id и chat_id
+            if function_name == "create_reminder":
+                return await handler(arguments, user_id, chat_id)
             return await handler(arguments)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return {"error": str(e)}
     
-    async def handle_create_reminder(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_create_reminder(self, args: Dict[str, Any], user_id: int = 0, chat_id: int = 0) -> Dict[str, Any]:
         """Handle create_reminder function call"""
-        # This will be implemented with actual DB calls
-        return {
-            "success": True,
-            "message": f"Напоминание создано: {args.get('text')} на {args.get('when_iso')}"
-        }
+        from db_helpers import create_reminder, get_or_create_user
+        from datetime import datetime
+        import dateutil.parser
+        import pytz
+        
+        text = args.get('text', '')
+        when_iso = args.get('when_iso', '')
+        
+        if not text or not when_iso:
+            return {
+                "success": False,
+                "message": "Не указан текст или время напоминания"
+            }
+        
+        try:
+            # Парсим ISO дату (ожидается UTC)
+            when_datetime = dateutil.parser.isoparse(when_iso)
+            
+            # Если времяzone не указан, считаем что UTC
+            if when_datetime.tzinfo is None:
+                when_datetime = pytz.UTC.localize(when_datetime)
+            
+            # Конвертируем в UTC для хранения
+            when_datetime_utc = when_datetime.astimezone(pytz.UTC)
+            
+            # Проверяем что время в будущем
+            now_utc = datetime.now(pytz.UTC)
+            if when_datetime_utc < now_utc:
+                return {
+                    "success": False,
+                    "message": f"Указанное время уже прошло: {when_datetime_utc.strftime('%d.%m.%Y %H:%M')}"
+                }
+            
+            # Получаем или создаём пользователя для получения внутреннего ID
+            user = await get_or_create_user(chat_id, None, None)
+            
+            # Сохраняем в БД (используем внутренний user.id, не telegram_id)
+            reminder = await create_reminder(user.id, text, when_datetime_utc.replace(tzinfo=None))
+            
+            # Добавляем в планировщик
+            if self.scheduler and self.bot:
+                await self.scheduler.add_reminder(chat_id, text, when_datetime_utc.replace(tzinfo=None))
+            
+            formatted_date = when_datetime_utc.strftime("%d.%m.%Y %H:%M")
+            return {
+                "success": True,
+                "reminder_id": reminder.id,
+                "message": f"Напоминание создано: {text} на {formatted_date} ⏰"
+            }
+        except Exception as e:
+            import traceback
+            print(f"Error creating reminder: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"Ошибка создания напоминания: {str(e)}"
+            }
     
     async def handle_add_note(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle add_note function call"""
@@ -237,6 +297,6 @@ class FunctionHandler:
         }
 
 
-# Global function handler instance
-function_handler = FunctionHandler()
+# Global function handler instance (will be initialized with scheduler in bot.py)
+function_handler: Optional[FunctionHandler] = None
 

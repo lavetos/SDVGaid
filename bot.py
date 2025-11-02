@@ -17,6 +17,8 @@ from db_helpers import (
     complete_reminder, get_plan_items, add_plan_item, delete_plan_item, 
     toggle_plan_item
 )
+from datetime import datetime, timedelta
+import pytz
 from keyboards import (
     get_energy_keyboard, get_day_type_keyboard, get_pomodoro_keyboard,
     get_main_keyboard, get_goal_confirmation_keyboard, get_goal_completion_keyboard,
@@ -25,6 +27,7 @@ from keyboards import (
 )
 from ai_service import ai_service
 from scheduler import ReminderScheduler
+from ai_functions import FunctionHandler
 
 
 # Инициализация бота и диспетчера
@@ -34,6 +37,10 @@ dp = Dispatcher(storage=storage)
 
 # Инициализация планировщика
 scheduler = ReminderScheduler(bot)
+
+# Инициализация function handler с scheduler и bot
+from ai_functions import function_handler as _fh_module
+_fh_module.function_handler = FunctionHandler(scheduler=scheduler, bot=bot)
 
 
 # Состояния FSM
@@ -611,6 +618,45 @@ async def handle_ai_message(message: Message):
         )
 
 
+# ==================== ЗАГРУЗКА СУЩЕСТВУЮЩИХ НАПОМИНАНИЙ ====================
+
+async def load_existing_reminders():
+    """Загрузить существующие напоминания из БД в планировщик"""
+    try:
+        from database import async_session, Reminder, User
+        from sqlalchemy import select
+        
+        async with async_session() as session:
+            # Получаем все активные напоминания с информацией о пользователе
+            result = await session.execute(
+                select(Reminder, User.telegram_id)
+                .join(User, Reminder.user_id == User.id)
+                .where(Reminder.completed == False)
+                .where(Reminder.when_datetime > datetime.utcnow())
+            )
+            
+            reminders_with_users = result.all()
+            
+            count = 0
+            for row in reminders_with_users:
+                reminder = row[0]  # Reminder object
+                telegram_id = row[1]  # User.telegram_id
+                
+                # Конвертируем в timezone-aware datetime
+                when = pytz.UTC.localize(reminder.when_datetime) if reminder.when_datetime.tzinfo is None else reminder.when_datetime
+                await scheduler.add_reminder(telegram_id, reminder.text, when)
+                count += 1
+            
+            if count > 0:
+                print(f"✅ Загружено {count} активных напоминаний в планировщик ⏰")
+            else:
+                print("ℹ️  Активных напоминаний нет")
+    except Exception as e:
+        import traceback
+        print(f"⚠️  Ошибка загрузки напоминаний: {e}")
+        traceback.print_exc()
+
+
 # ==================== ЗАПУСК БОТА ====================
 
 async def main():
@@ -623,6 +669,9 @@ async def main():
     # Инициализация БД
     await init_db()
     print("База данных инициализирована ✅")
+    
+    # Загружаем существующие напоминания в планировщик
+    await load_existing_reminders()
     
     # Запуск планировщика
     scheduler.start()
