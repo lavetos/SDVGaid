@@ -916,7 +916,8 @@ async def handle_voice_message(message: Message):
     voice_service = get_voice_service()
     if not voice_service:
         await message.answer(
-            "🎤 Голосовой ввод недоступен (не настроен OpenAI API)\n\n"
+            "🎤 Голосовой ввод недоступен (нужно установить faster-whisper)\n\n"
+            "Установи: pip install faster-whisper\n\n"
             "Напиши текст вместо этого 💛",
             reply_markup=get_main_keyboard()
         )
@@ -951,7 +952,7 @@ async def handle_voice_message(message: Message):
         error_msg = str(e)
         if "too long" in error_msg.lower():
             await processing_msg.edit_text(
-                "Голосовое сообщение слишком длинное (макс. 1 час) ⏰\n\n"
+                "Голосовое сообщение слишком длинное (макс. 5 минут) ⏰\n\n"
                 "Попробуй короче или напиши текст",
                 reply_markup=get_main_keyboard()
             )
