@@ -4,8 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 from config import DATABASE_URL
+import logging
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
+
+# Определяем используем ли мы PostgreSQL
+IS_POSTGRES = 'postgresql' in DATABASE_URL.lower() or 'postgres' in DATABASE_URL.lower()
 
 
 class User(Base):
@@ -111,14 +117,38 @@ class DailyPlanItem(Base):
 
 
 # Создание движка и сессии
-engine = create_async_engine(DATABASE_URL, echo=False)
+# Для PostgreSQL добавляем pool_pre_ping для автоматического восстановления соединений
+engine_kwargs = {
+    "echo": False,
+    "pool_pre_ping": True,  # Автоматическое восстановление соединений
+}
+
+if IS_POSTGRES:
+    # Для PostgreSQL добавляем дополнительные настройки надёжности
+    engine_kwargs.update({
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_recycle": 3600,  # Переиспользование соединений каждый час
+    })
+    logger.info("🗄️  Database: PostgreSQL (persistent, reliable)")
+
+engine = create_async_engine(DATABASE_URL, **engine_kwargs)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def init_db():
     """Инициализация базы данных"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        
+        if IS_POSTGRES:
+            logger.info("✅ PostgreSQL database initialized and ready")
+        else:
+            logger.info("✅ SQLite database initialized")
+    except Exception as e:
+        logger.error(f"❌ Database initialization error: {e}")
+        raise
 
 
 async def get_session() -> AsyncSession:

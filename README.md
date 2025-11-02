@@ -56,9 +56,22 @@ The bot now supports **AI-powered natural language understanding** using OpenAI 
 
 **See [AI_SETUP.md](AI_SETUP.md) for detailed setup instructions.**
 
+## 🌐 Cloud Deployment
+
+Run the bot 24/7 in the cloud! See [DEPLOY_FREE.md](DEPLOY_FREE.md) for detailed instructions.
+
+**Quick options:**
+- 🚂 **Railway.app** (Recommended) - Easy, free tier, PostgreSQL support
+- 🎨 **Render.com** - Simple, free tier (sleeps after inactivity)
+- 🪰 **Fly.io** - Free tier available
+- 🐍 **PythonAnywhere** - Good for beginners
+
+**🗄️ Persistent Database:** PostgreSQL support included! Data never lost. See [POSTGRESQL_SETUP.md](POSTGRESQL_SETUP.md)
+
 ## 📚 Documentation
 
 - [SETUP.md](SETUP.md) - Installation guide
+- [DEPLOY.md](DEPLOY.md) - Cloud deployment guide
 - [AI_SETUP.md](AI_SETUP.md) - AI configuration
 - [HOW_TO_GET_TOKEN.md](HOW_TO_GET_TOKEN.md) - Getting Telegram bot token
 
