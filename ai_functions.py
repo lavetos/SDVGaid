@@ -12,7 +12,7 @@ FUNCTION_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_reminder",
-            "description": "Создать напоминание на определённое время. Используй когда пользователь просит напомнить что-то.",
+            "description": "Создать напоминание на определённое время. ОБЯЗАТЕЛЬНО используй эту функцию когда пользователь просит напомнить что-то, поставить напоминание, или говорит о времени в будущем (через час, завтра, после обеда и т.д.).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -38,7 +38,7 @@ FUNCTION_TOOLS = [
         "type": "function",
         "function": {
             "name": "add_note",
-            "description": "Сохранить заметку или мысль в 'внешнюю голову' пользователя. Всегда используй когда нужно что-то запомнить.",
+            "description": "Сохранить заметку или мысль в 'внешнюю голову' пользователя. ОБЯЗАТЕЛЬНО используй эту функцию когда пользователь просит записать, сохранить, не забыть что-то, или говорит фразы типа 'запиши', 'запомни', 'сохрани', 'не забудь', 'давай запиши', 'просто запиши', 'запиши мне'. Если в сообщении несколько вещей через 'и' (например, 'запиши X и Y'), вызови функцию несколько раз — по разу для каждой вещи. ВСЕГДА используй эту функцию когда видишь эти ключевые слова, даже если пользователь не закончил мысль.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -161,8 +161,8 @@ class FunctionHandler:
             return {"error": f"Unknown function: {function_name}"}
         
         try:
-            # Для create_reminder передаём user_id и chat_id
-            if function_name == "create_reminder":
+            # Для create_reminder и add_note передаём user_id и chat_id
+            if function_name in ["create_reminder", "add_note"]:
                 return await handler(arguments, user_id, chat_id)
             return await handler(arguments)
         except Exception as e:
@@ -211,15 +211,40 @@ class FunctionHandler:
             # Сохраняем в БД (используем внутренний user.id, не telegram_id)
             reminder = await create_reminder(user.id, text, when_datetime_utc.replace(tzinfo=None))
             
+            # Получаем язык пользователя
+            from db_helpers import get_user_language_code
+            lang_code = await get_user_language_code(user.id)
+            
             # Добавляем в планировщик
             if self.scheduler and self.bot:
-                await self.scheduler.add_reminder(chat_id, text, when_datetime_utc.replace(tzinfo=None))
+                # Scheduler сам обработает timezone, но передаем timezone-aware datetime
+                await self.scheduler.add_reminder(chat_id, text, when_datetime_utc, lang_code)
             
-            formatted_date = when_datetime_utc.strftime("%d.%m.%Y %H:%M")
+            # Показываем время в таймзоне пользователя
+            from config import USER_TIMEZONE
+            from translations import translate
+            user_tz = pytz.timezone(USER_TIMEZONE)
+            when_local = when_datetime_utc.astimezone(user_tz)
+            formatted_date_local = when_local.strftime("%d.%m.%Y %H:%M")
+            
+            # Вычисляем через сколько времени будет напоминание
+            time_diff = when_datetime_utc - now_utc
+            if time_diff.total_seconds() < 60:
+                time_until = translate("in_seconds", lang_code, seconds=int(time_diff.total_seconds()))
+            elif time_diff.total_seconds() < 3600:
+                time_until = translate("in_minutes", lang_code, minutes=int(time_diff.total_seconds() / 60))
+            else:
+                hours = int(time_diff.total_seconds() / 3600)
+                minutes = int((time_diff.total_seconds() % 3600) / 60)
+                if minutes > 0:
+                    time_until = translate("in_hours_minutes", lang_code, hours=hours, minutes=minutes)
+                else:
+                    time_until = translate("in_hours", lang_code, hours=hours)
+            
             return {
                 "success": True,
                 "reminder_id": reminder.id,
-                "message": f"Напоминание создано: {text} на {formatted_date} ⏰"
+                "message": translate("reminder_created", lang_code, text=text, time=formatted_date_local, time_until=time_until)
             }
         except Exception as e:
             import traceback
@@ -230,12 +255,36 @@ class FunctionHandler:
                 "message": f"Ошибка создания напоминания: {str(e)}"
             }
     
-    async def handle_add_note(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_add_note(self, args: Dict[str, Any], user_id: int = 0, chat_id: int = 0) -> Dict[str, Any]:
         """Handle add_note function call"""
-        return {
-            "success": True,
-            "message": f"Заметка сохранена: {args.get('text')}"
-        }
+        from db_helpers import save_note, get_or_create_user
+        
+        text = args.get('text', '')
+        if not text or not text.strip():
+            return {
+                "success": False,
+                "message": "Текст заметки не указан"
+            }
+        
+        try:
+            # Получаем или создаём пользователя
+            user = await get_or_create_user(chat_id, None, None)
+            
+            # Сохраняем заметку
+            await save_note(user.id, text.strip())
+            
+            return {
+                "success": True,
+                "message": f"✅ Заметка сохранена: {text.strip()}"
+            }
+        except Exception as e:
+            import traceback
+            print(f"Error adding note: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"Не удалось сохранить заметку: {str(e)}"
+            }
     
     async def handle_start_focus_timer(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle start_focus_timer function call"""
@@ -255,24 +304,86 @@ class FunctionHandler:
         
         text = args.get('text', '')
         
-        # Парсим время относительно текущей даты (2025 год)
-        parsed_date = dateparser.parse(
-            text,
-            languages=['ru', 'en'],
-            settings={
-                'RELATIVE_BASE': datetime.now(),  # Используем текущую дату как базу
-                'PREFER_DATES_FROM': 'future'  # Предпочитаем будущие даты
-            }
-        )
+        # Парсим время относительно текущей даты
+        # Для относительных времен ("через минуту", "через 10 секунд") используем текущее время
+        import pytz
+        from datetime import timedelta
+        from config import USER_TIMEZONE
+        
+        # Получаем текущее время в таймзоне пользователя
+        user_tz = pytz.timezone(USER_TIMEZONE)
+        now_local_naive = datetime.now()  # Naive datetime для dateparser
+        now_local = user_tz.localize(now_local_naive.replace(tzinfo=None))  # Timezone-aware для вычислений
+        now_utc = datetime.now(pytz.UTC)
+        
+        # Специальная обработка для "через X секунд/минут/часов"
+        if "через" in text.lower():
+            # Парсим относительное время начиная с СЕЙЧАС (используем naive для dateparser)
+            parsed_date = dateparser.parse(
+                text,
+                languages=['ru', 'en'],
+                settings={
+                    'RELATIVE_BASE': now_local_naive,  # Базовое время - СЕЙЧАС (naive)
+                    'PREFER_DATES_FROM': 'future',  # Предпочитаем будущие даты
+                    'STRICT_PARSING': False,
+                    'TIMEZONE': USER_TIMEZONE  # Используем таймзону пользователя
+                }
+            )
+        else:
+            # Для абсолютных времен используем обычный парсинг
+            parsed_date = dateparser.parse(
+                text,
+                languages=['ru', 'en'],
+                settings={
+                    'RELATIVE_BASE': now_local_naive,
+                    'PREFER_DATES_FROM': 'future',
+                    'TIMEZONE': USER_TIMEZONE
+                }
+            )
+        
+        # Если парсинг не удался и это "через X", пробуем ручной парсинг
+        if not parsed_date and "через" in text.lower():
+            # Простой парсинг для "через N секунд/минут"
+            import re
+            match = re.search(r'через\s+(\d+)\s+(секунд[ыу]?|минут[ыу]?|час[аов]?)', text.lower())
+            if match:
+                value = int(match.group(1))
+                unit = match.group(2)
+                if 'секунд' in unit:
+                    parsed_date = now_local + timedelta(seconds=value)
+                elif 'минут' in unit:
+                    parsed_date = now_local + timedelta(minutes=value)
+                elif 'час' in unit:
+                    parsed_date = now_local + timedelta(hours=value)
+                else:
+                    parsed_date = None
         
         if parsed_date:
+            # Делаем timezone-aware если не указан
+            if parsed_date.tzinfo is None:
+                # Используем таймзону пользователя из конфига
+                import pytz
+                from config import USER_TIMEZONE
+                local_tz = pytz.timezone(USER_TIMEZONE)
+                parsed_date = local_tz.localize(parsed_date)
+            
+            # Конвертируем в UTC
+            parsed_date_utc = parsed_date.astimezone(pytz.UTC)
+            
+            # Проверяем что время в будущем
+            if parsed_date_utc < now_utc:
+                return {
+                    "success": False,
+                    "message": f"Указанное время уже прошло: {parsed_date_utc.strftime('%d.%m.%Y %H:%M')}. Попробуй 'через 10 секунд' или 'через 1 минуту'."
+                }
+            
             # Конвертируем в ISO формат для создания напоминания
-            iso_date = parsed_date.isoformat() + 'Z' if parsed_date.tzinfo is None else parsed_date.astimezone().isoformat()
+            iso_date = parsed_date_utc.isoformat()
             return {
                 "success": True,
                 "parsed_date": iso_date,
-                "formatted": parsed_date.strftime("%d.%m.%Y %H:%M"),
-                "message": f"Распарсено: {parsed_date.strftime('%d.%m.%Y %H:%M')}"
+                "formatted": parsed_date_utc.strftime("%d.%m.%Y %H:%M"),
+                "message": f"Распарсено: {parsed_date_utc.strftime('%d.%m.%Y %H:%M')}"
             }
         else:
             return {

@@ -1,13 +1,17 @@
 """Клавиатуры для бота"""
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from translations import translate
 
 
-def get_energy_keyboard() -> ReplyKeyboardMarkup:
+def get_energy_keyboard(lang_code: str = 'en') -> ReplyKeyboardMarkup:
     """Клавиатура выбора уровня энергии"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔋 Меньше 40%"), KeyboardButton(text="⚡ Около 60%")],
-            [KeyboardButton(text="💪 Больше 80%")]
+            [
+                KeyboardButton(text=translate("energy_less_40", lang_code)),
+                KeyboardButton(text=translate("energy_around_60", lang_code))
+            ],
+            [KeyboardButton(text=translate("energy_more_80", lang_code))]
         ],
         resize_keyboard=True,
         one_time_keyboard=True
@@ -37,25 +41,35 @@ def get_pomodoro_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """Главная клавиатура с командами"""
+def get_main_keyboard(lang_code: str = 'en') -> ReplyKeyboardMarkup:
+    """Главная клавиатура с командами - упрощенная для СДВГ"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="/goal"), KeyboardButton(text="/plan")],
-            [KeyboardButton(text="/focus"), KeyboardButton(text="/reminders")],
-            [KeyboardButton(text="/note"), KeyboardButton(text="/notes")],
-            [KeyboardButton(text="/evening"), KeyboardButton(text="/quiet")],
-            [KeyboardButton(text="/energy"), KeyboardButton(text="/help")]
+            [KeyboardButton(text="💚 Помощь сейчас"), KeyboardButton(text="🎯 Главная цель")],
+            [KeyboardButton(text="📋 План"), KeyboardButton(text="🍅 Фокус")],
+            [KeyboardButton(text="📝 Заметки"), KeyboardButton(text="🔋 Энергия")]
         ],
         resize_keyboard=True
     )
 
 
-def get_cancel_keyboard() -> ReplyKeyboardMarkup:
+def get_quick_actions_keyboard() -> ReplyKeyboardMarkup:
+    """Быстрые действия - для ситуаций перегрузки"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔋 Обновить энергию"), KeyboardButton(text="😌 Режим тишины")],
+            [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🔙 Назад")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+
+def get_cancel_keyboard(lang_code: str = 'en') -> ReplyKeyboardMarkup:
     """Клавиатура с кнопкой отмены"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="❌ Отмена")]
+            [KeyboardButton(text=translate("cancel", lang_code))]
         ],
         resize_keyboard=True,
         one_time_keyboard=True

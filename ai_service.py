@@ -66,46 +66,68 @@ class AIService:
                 return await self._process_openai(user_message, user_id, energy_level)
             elif self.current_provider == 'claude':
                 return await self._process_claude(user_message, user_id, energy_level)
+            else:
+                return "AI сервис недоступен. Используй команды /goal, /plan, /reminders 💛"
         except Exception as e:
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"AI error processing message '{user_message[:50]}...': {e}", exc_info=True)
             print(f"AI error: {e}")
-            return "Упс, что-то пошло не так 😅 Попробуй ещё раз или используй обычные команды!"
+            traceback.print_exc()
+            # Более понятное сообщение об ошибке
+            error_msg = str(e)[:150] if str(e) else "Неизвестная ошибка"
+            return f"Упс, что-то пошло не так 😅\n\n💡 Попробуй:\n• Написать короче\n• Использовать команды: /goal, /plan, /note, /reminders\n• Или просто: 'запиши купить молоко'\n\n💛"
     
     async def _process_openai(self, user_message: str, user_id: int, energy_level: Optional[int]) -> str:
         """Process with OpenAI"""
-        messages = get_conversation_history()
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # Add energy level context if available
-        if energy_level:
-            if energy_level < 40:
-                messages.append({"role": "system", "content": get_low_energy_prompt()})
-            elif energy_level > 80:
-                messages.append({"role": "system", "content": get_high_energy_prompt()})
-        
-        # Add user message
-        messages.append({"role": "user", "content": user_message})
-        
-        # Get function tools
-        tools = get_function_schema()
-        
-        # Call OpenAI
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Cheaper model
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        choice = response.choices[0]
-        message = choice.message
-        
-        # Handle function calls
-        if message.tool_calls:
-            return await self._handle_tool_calls(message.tool_calls, messages, user_id)
-        
-        # Return text response
-        return message.content
+        try:
+            messages = get_conversation_history()
+            
+            # Add energy level context if available
+            if energy_level:
+                if energy_level < 40:
+                    messages.append({"role": "system", "content": get_low_energy_prompt()})
+                elif energy_level > 80:
+                    messages.append({"role": "system", "content": get_high_energy_prompt()})
+            
+            # Add user message
+            messages.append({"role": "user", "content": user_message})
+            
+            # Get function tools
+            tools = get_function_schema()
+            
+            # Call OpenAI
+            logger.debug(f"Calling OpenAI with {len(messages)} messages, user_id={user_id}")
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",  # Cheaper model
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            choice = response.choices[0]
+            message = choice.message
+            
+            # Handle function calls
+            if message.tool_calls:
+                logger.debug(f"OpenAI returned {len(message.tool_calls)} tool calls")
+                return await self._handle_tool_calls(message.tool_calls, messages, user_id)
+            
+            # Return text response
+            response_text = message.content or "Понял тебя 💛"
+            logger.debug(f"OpenAI text response: {response_text[:50]}...")
+            return response_text
+        except Exception as e:
+            import traceback
+            logger.error(f"Error in _process_openai: {e}", exc_info=True)
+            traceback.print_exc()
+            raise
     
     async def _process_claude(self, user_message: str, user_id: int, energy_level: Optional[int]) -> str:
         """Process with Claude"""
@@ -134,50 +156,63 @@ class AIService:
     
     async def _handle_tool_calls(self, tool_calls: List[Any], messages: List[Dict], user_id: int) -> str:
         """Handle tool/function calls from AI"""
+        import logging
+        logger = logging.getLogger(__name__)
         results = []
         
         for tool_call in tool_calls:
-            function_name = tool_call.function.name
-            arguments = json.loads(tool_call.function.arguments)
-            
-            # Call function handler
-            function_handler = af_module.function_handler
-            if not function_handler:
-                result = {"error": "Function handler not initialized"}
+            try:
+                function_name = tool_call.function.name
+                arguments = json.loads(tool_call.function.arguments)
+                logger.debug(f"Handling tool call: {function_name} with args: {arguments}")
+                
+                # Call function handler
+                function_handler = af_module.function_handler
+                if not function_handler:
+                    logger.error("Function handler not initialized!")
+                    result = {"success": False, "message": "Функции не инициализированы. Попробуй перезапустить бота."}
+                else:
+                    # Для create_reminder нужен chat_id (telegram user_id)
+                    # user_id - это внутренний ID из БД, chat_id - это telegram user_id
+                    chat_id = user_id  # В нашей схеме они совпадают
+                    result = await function_handler.handle_function_call(function_name, arguments, user_id, chat_id)
+                    logger.debug(f"Function {function_name} returned: success={result.get('success')}")
+                
+                results.append(result)
+                
+                # Add result back to conversation
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": function_name,
+                    "content": json.dumps(result)
+                })
+            except Exception as e:
+                import traceback
+                logger.error(f"Error handling tool call {tool_call.function.name if hasattr(tool_call, 'function') else 'unknown'}: {e}", exc_info=True)
+                traceback.print_exc()
+                results.append({
+                    "success": False,
+                    "message": f"Ошибка при выполнении функции: {str(e)[:100]}"
+                })
+        
+        # If we got successful results, format them nicely
+        success_messages = [r.get("message", "") for r in results if r.get("success")]
+        error_messages = [r.get("message", "") for r in results if not r.get("success")]
+        
+        if success_messages:
+            # If multiple notes/reminders were created, combine messages
+            if len(success_messages) == 1:
+                return success_messages[0]
             else:
-                # Для create_reminder нужен chat_id (telegram user_id)
-                # user_id - это внутренний ID из БД, chat_id - это telegram user_id
-                chat_id = user_id  # В нашей схеме они совпадают
-                result = await function_handler.handle_function_call(function_name, arguments, user_id, chat_id)
-            results.append(result)
-            
-            # Add result back to conversation
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": function_name,
-                "content": json.dumps(result)
-            })
+                # Multiple actions completed
+                return "\n".join(success_messages)
+        elif error_messages:
+            # Если все функции упали с ошибкой
+            return error_messages[0] if len(error_messages) == 1 else f"Ошибки: {', '.join(error_messages)}"
         
-        # If we got a successful result with actions, return user-friendly message
-        if len(results) == 1:
-            result = results[0]
-            if result.get("success"):
-                return result.get("message", "Готово! ✅")
-        
-        # Otherwise, get AI to summarize
-        messages.append({"role": "user", "content": "Пользователь попросил..."})
-        
-        if self.current_provider == 'openai':
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=300
-            )
-            return response.choices[0].message.content
-        
-        return "Готово! ✅"
+        # Если нет ни успехов, ни ошибок (не должно быть, но на всякий случай)
+        return "Выполнено, но ответ не получен. Проверь результат через /notes или /reminders 💛"
     
     async def breakdown_task(self, task_description: str) -> List[str]:
         """Break down a task into microsteps"""

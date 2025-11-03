@@ -1,29 +1,77 @@
 """Вспомогательные функции для работы с БД"""
 from database import async_session, User, EnergyLog, DailyGoal, Note, EveningCheckIn, UserState, Reminder, DailyPlanItem
 from datetime import datetime, timedelta
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Integer
 
 
-async def get_or_create_user(telegram_id: int, username: str = None, name: str = None) -> User:
+async def get_or_create_user(telegram_id: int, username: str = None, name: str = None, language_code: str = None) -> User:
     """Получить или создать пользователя"""
+    from translations import get_language_code
+    
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == telegram_id))
         user = result.scalar_one_or_none()
         
         if not user:
-            user = User(telegram_id=telegram_id, username=username, name=name)
+            lang = get_language_code(language_code) if language_code else 'en'
+            user = User(telegram_id=telegram_id, username=username, name=name, language_code=lang)
             session.add(user)
             await session.commit()
+        else:
+            # Update language if provided and different
+            if language_code:
+                new_lang = get_language_code(language_code)
+                if user.language_code != new_lang:
+                    user.language_code = new_lang
+                    await session.commit()
         
         return user
+
+
+async def get_user_language_code(user_id: int) -> str:
+    """Get user's language code"""
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        return user.language_code if user and user.language_code else 'en'
 
 
 async def save_energy_level(user_id: int, energy_level: int):
     """Сохранить уровень энергии"""
     async with async_session() as session:
-        energy_log = EnergyLog(user_id=user_id, energy_level=energy_level)
-        session.add(energy_log)
+        # Check if there's already an energy log for today
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        result = await session.execute(
+            select(EnergyLog)
+            .where(EnergyLog.user_id == user_id)
+            .where(EnergyLog.date >= today_start)
+            .order_by(EnergyLog.date.desc())
+        )
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            # Update existing
+            existing.energy_level = energy_level
+        else:
+            # Create new
+            energy_log = EnergyLog(user_id=user_id, energy_level=energy_level)
+            session.add(energy_log)
+        
         await session.commit()
+
+
+async def get_todays_energy(user_id: int) -> int:
+    """Получить уровень энергии на сегодня"""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    async with async_session() as session:
+        result = await session.execute(
+            select(EnergyLog)
+            .where(EnergyLog.user_id == user_id)
+            .where(EnergyLog.date >= today_start)
+            .order_by(EnergyLog.date.desc())
+        )
+        energy_log = result.scalar_one_or_none()
+        return energy_log.energy_level if energy_log else None
 
 
 async def get_todays_goal(user_id: int) -> DailyGoal:
@@ -39,13 +87,34 @@ async def get_todays_goal(user_id: int) -> DailyGoal:
         return result.scalar_one_or_none()
 
 
-async def save_goal(user_id: int, goal_text: str) -> DailyGoal:
+async def save_goal(user_id: int, goal_text: str, estimated_pomodoros: int = None) -> DailyGoal:
     """Сохранить цель дня"""
     async with async_session() as session:
-        goal = DailyGoal(user_id=user_id, goal_text=goal_text)
+        goal = DailyGoal(user_id=user_id, goal_text=goal_text, estimated_pomodoros=estimated_pomodoros)
         session.add(goal)
         await session.commit()
         return goal
+
+
+async def update_goal_pomodoros(goal_id: int, estimated: int = None, completed: int = None):
+    """Обновить оценку или прогресс помидоров для цели"""
+    async with async_session() as session:
+        result = await session.execute(select(DailyGoal).where(DailyGoal.id == goal_id))
+        goal = result.scalar_one()
+        if estimated is not None:
+            goal.estimated_pomodoros = estimated
+        if completed is not None:
+            goal.completed_pomodoros = completed
+        await session.commit()
+
+
+async def increment_goal_pomodoro(user_id: int):
+    """Увеличить счетчик выполненных помидоров для сегодняшней цели"""
+    goal = await get_todays_goal(user_id)
+    if goal:
+        # Если есть оценка - обновляем, если нет - просто увеличиваем счетчик
+        new_count = (goal.completed_pomodoros or 0) + 1
+        await update_goal_pomodoros(goal.id, completed=new_count)
 
 
 async def complete_goal(goal_id: int, completed: bool = True):
@@ -55,6 +124,172 @@ async def complete_goal(goal_id: int, completed: bool = True):
         goal = result.scalar_one()
         goal.completed = completed
         await session.commit()
+
+
+async def set_day_rating(user_id: int, date: datetime = None, rating: int = None):
+    """Установить оценку дня (1-10)"""
+    if date is None:
+        date = datetime.now()
+    date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    async with async_session() as session:
+        # Находим цель на этот день
+        result = await session.execute(
+            select(DailyGoal)
+            .where(DailyGoal.user_id == user_id)
+            .where(DailyGoal.date >= date_start)
+            .order_by(DailyGoal.id.desc())
+        )
+        goal = result.scalar_one_or_none()
+        
+        if goal:
+            goal.day_rating = rating
+        else:
+            # Создаем запись если её нет
+            goal = DailyGoal(
+                user_id=user_id,
+                goal_text="",
+                completed=False,
+                date=date_start,
+                day_rating=rating
+            )
+            session.add(goal)
+        
+        await session.commit()
+        return goal
+
+
+async def get_daily_summary(user_id: int, date: datetime = None):
+    """Получить сводку дня: цель, план, оценка"""
+    if date is None:
+        date = datetime.now()
+    date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    date_end = date_start + timedelta(days=1)
+    
+    async with async_session() as session:
+        # Цель дня
+        goal_result = await session.execute(
+            select(DailyGoal)
+            .where(DailyGoal.user_id == user_id)
+            .where(DailyGoal.date >= date_start)
+            .where(DailyGoal.date < date_end)
+            .order_by(DailyGoal.id.desc())
+        )
+        goal = goal_result.scalar_one_or_none()
+        
+        # План
+        plan_result = await session.execute(
+            select(DailyPlanItem)
+            .where(DailyPlanItem.user_id == user_id)
+            .where(DailyPlanItem.date >= date_start)
+            .where(DailyPlanItem.date < date_end)
+            .order_by(DailyPlanItem.order.asc())
+        )
+        plan_items = plan_result.scalars().all()
+        
+        # Вечерний чек-ин
+        checkin_result = await session.execute(
+            select(EveningCheckIn)
+            .where(EveningCheckIn.user_id == user_id)
+            .where(EveningCheckIn.date >= date_start)
+            .where(EveningCheckIn.date < date_end)
+            .order_by(EveningCheckIn.id.desc())
+        )
+        checkin = checkin_result.scalar_one_or_none()
+        
+        return {
+            'goal': goal,
+            'plan_items': list(plan_items),
+            'checkin': checkin,
+            'date': date_start
+        }
+
+
+async def get_days_history(user_id: int, limit: int = 30):
+    """Получить историю дней"""
+    async with async_session() as session:
+        # Получаем все цели (используем простой select без func.date для совместимости)
+        goals_result = await session.execute(
+            select(DailyGoal)
+            .where(DailyGoal.user_id == user_id)
+            .order_by(DailyGoal.date.desc())
+            .limit(limit * 2)
+        )
+        goals = goals_result.scalars().all()
+        
+        # Группируем по дням
+        days_map = {}
+        for goal in goals:
+            # Нормализуем дату (убираем время)
+            goal_date = goal.date.replace(hour=0, minute=0, second=0, microsecond=0) if goal.date else datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            day_key = goal_date.isoformat()[:10]  # Используем только дату без времени
+            
+            if day_key not in days_map:
+                days_map[day_key] = {
+                    'date': goal_date,
+                    'goal': goal.goal_text if goal.goal_text else None,
+                    'goal_completed': goal.completed,
+                    'rating': goal.day_rating,
+                    'pomodoros': f"{goal.completed_pomodoros or 0}/{goal.estimated_pomodoros or 0}" if goal.estimated_pomodoros else None,
+                    'plan_count': 0,
+                    'plan_completed': 0
+                }
+            else:
+                # Обновляем если есть более свежие данные
+                if goal.goal_text:
+                    days_map[day_key]['goal'] = goal.goal_text
+                if goal.day_rating:
+                    days_map[day_key]['rating'] = goal.day_rating
+                if goal.estimated_pomodoros:
+                    days_map[day_key]['pomodoros'] = f"{goal.completed_pomodoros or 0}/{goal.estimated_pomodoros or 0}"
+                days_map[day_key]['goal_completed'] = goal.completed
+        
+        # Добавляем данные о плане (используем более простой подход для совместимости)
+        all_plans_result = await session.execute(
+            select(DailyPlanItem)
+            .where(DailyPlanItem.user_id == user_id)
+            .order_by(DailyPlanItem.date.desc())
+        )
+        all_plans = all_plans_result.scalars().all()
+        
+        # Группируем планы по дням
+        plans_by_day = {}
+        for plan_item in all_plans:
+            plan_date = plan_item.date.replace(hour=0, minute=0, second=0, microsecond=0) if plan_item.date else None
+            if plan_date:
+                day_key = plan_date.isoformat() if isinstance(plan_date, datetime) else str(plan_date)
+                if day_key not in plans_by_day:
+                    plans_by_day[day_key] = {'total': 0, 'completed': 0}
+                plans_by_day[day_key]['total'] += 1
+                if plan_item.completed:
+                    plans_by_day[day_key]['completed'] += 1
+        
+        for day_key, plan_data in plans_by_day.items():
+            if day_key in days_map:
+                days_map[day_key]['plan_count'] = plan_data['total']
+                days_map[day_key]['plan_completed'] = plan_data['completed']
+            elif day_key not in days_map:
+                # Парсим дату из ключа
+                try:
+                    if isinstance(day_key, str):
+                        day_date = datetime.fromisoformat(day_key.replace('Z', '+00:00')) if 'T' in day_key else datetime.strptime(day_key, '%Y-%m-%d')
+                    else:
+                        day_date = day_key
+                except:
+                    continue
+                days_map[day_key] = {
+                    'date': day_date,
+                    'goal': None,
+                    'goal_completed': False,
+                    'rating': None,
+                    'pomodoros': None,
+                    'plan_count': plan_data['total'],
+                    'plan_completed': plan_data['completed']
+                }
+        
+        # Сортируем по дате (новые первыми)
+        days_list = sorted(days_map.values(), key=lambda x: x['date'], reverse=True)
+        return days_list[:limit]
 
 
 async def save_note(user_id: int, text: str) -> Note:

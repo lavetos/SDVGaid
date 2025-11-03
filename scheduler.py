@@ -7,6 +7,7 @@ from database import async_session
 from sqlalchemy import select
 from typing import Optional
 import pytz
+from config import USER_TIMEZONE
 
 
 class ReminderScheduler:
@@ -15,7 +16,8 @@ class ReminderScheduler:
     def __init__(self, bot):
         self.bot = bot
         self.scheduler = AsyncIOScheduler()
-        self.timezone = pytz.timezone('UTC')  # Can be configured per user
+        self.timezone = pytz.timezone('UTC')  # Храним в UTC
+        self.user_timezone = pytz.timezone(USER_TIMEZONE)  # Таймзона пользователя для отображения
     
     def start(self):
         """Start the scheduler"""
@@ -27,7 +29,7 @@ class ReminderScheduler:
         self.scheduler.shutdown()
         print("Scheduler stopped ⏰")
     
-    async def add_reminder(self, chat_id: int, text: str, when: datetime):
+    async def add_reminder(self, chat_id: int, text: str, when: datetime, lang_code: str = 'en'):
         """Add a reminder"""
         # Убеждаемся что дата timezone-aware
         if when.tzinfo is None:
@@ -41,17 +43,37 @@ class ReminderScheduler:
             self.send_reminder,
             trigger=DateTrigger(run_date=when, timezone=self.timezone),
             id=job_id,
-            args=[chat_id, text],
+            args=[chat_id, text, lang_code],
             replace_existing=True
         )
-        print(f"⏰ Reminder scheduled: '{text}' at {when.strftime('%d.%m.%Y %H:%M:%S')} (UTC)")
+        # Показываем время в таймзоне пользователя
+        when_local = when.astimezone(self.user_timezone)
+        print(f"⏰ Reminder scheduled: '{text}' at {when_local.strftime('%d.%m.%Y %H:%M:%S')} ({USER_TIMEZONE}) / {when.strftime('%d.%m.%Y %H:%M:%S')} (UTC)")
     
-    async def send_reminder(self, chat_id: int, text: str):
-        """Send reminder message"""
+    async def send_reminder(self, chat_id: int, text: str, lang_code: str = 'en'):
+        """Send reminder message - мягко, без давления для СДВГ, с заметными уведомлениями"""
         try:
+            from translations import translate
+            
+            # Отправляем основное сообщение
+            now_local = datetime.now(self.user_timezone)
+            time_str = now_local.strftime("%H:%M")
+            
+            reminder_msg = translate("reminder_sent", lang_code, time=time_str, text=text)
+            
             await self.bot.send_message(
                 chat_id=chat_id,
-                text=f"📢 Напоминание:\n\n{text}\n\nЧто сделано? 💛",
+                text=reminder_msg,
+                parse_mode='HTML'
+            )
+            
+            # Отправляем дополнительное уведомление через 2 секунды для большей заметности
+            # (это не звонок, но делает уведомление более заметным)
+            import asyncio
+            await asyncio.sleep(2)
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=f"💬 {text}",
                 parse_mode='HTML'
             )
         except Exception as e:

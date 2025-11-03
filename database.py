@@ -22,6 +22,7 @@ class User(Base):
     telegram_id = Column(Integer, unique=True, nullable=False)
     username = Column(String(255))
     name = Column(String(255))
+    language_code = Column(String(10), default='en')  # 'en', 'es', 'ru', 'uk'
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -44,6 +45,9 @@ class DailyGoal(Base):
     goal_text = Column(Text, nullable=False)
     completed = Column(Boolean, default=False)
     date = Column(DateTime, default=datetime.utcnow)
+    estimated_pomodoros = Column(Integer, default=None)  # Сколько помидоров нужно
+    completed_pomodoros = Column(Integer, default=0)  # Сколько помидоров уже сделано
+    day_rating = Column(Integer, default=None)  # Оценка дня (1-10)
 
 
 class Note(Base):

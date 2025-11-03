@@ -49,3 +49,7 @@ POMODORO_BREAK_TIME = 5 * 60  # 5 минут в секундах
 # Настройки режима тишины
 QUIET_MODE_DURATION = 30 * 60  # 30 минут в секундах
 
+# Настройки таймзоны
+# По умолчанию Испания (Europe/Madrid), можно переопределить через переменную окружения
+USER_TIMEZONE = os.getenv('USER_TIMEZONE', 'Europe/Madrid')
+
